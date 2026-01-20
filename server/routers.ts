@@ -92,8 +92,7 @@ export const appRouter = router({
         // Create restaurant
         const restaurantId = await db.createRestaurant({
           ...input,
-          status: "trial",
-          trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // 14 days trial
+          ownerId: ctx.user.id,
         });
 
         // Add user as owner
@@ -169,7 +168,6 @@ export const appRouter = router({
           userId: input.userId,
           role: input.role,
           permissions: input.permissions || {},
-          invitedBy: ctx.user.id,
         });
         return { staffId, success: true };
       }),
@@ -251,9 +249,8 @@ export const appRouter = router({
         const agentId = await db.subscribeToAgent({
           restaurantId: ctx.tenant.restaurantId,
           agentKey: input.agentKey,
-          isEnabled: 1,
-          configuration: input.configuration || {},
-          stripeSubscriptionStatus: "trialing", // Start with trial
+          isEnabled: true,
+          configuration: input.configuration || {}
         });
 
         return { agentId, success: true };
@@ -453,7 +450,7 @@ export const appRouter = router({
       .input(
         z.object({
           reservationId: z.number(),
-          status: z.enum(["pending", "confirmed", "canceled", "completed", "no_show"]).optional(),
+          status: z.enum(["pending", "confirmed", "cancelled", "completed", "no_show"]).optional(),
           specialRequests: z.string().optional(),
           notes: z.string().optional(),
         })
@@ -486,7 +483,7 @@ export const appRouter = router({
           });
         }
 
-        await db.updateReservation(input.reservationId, { status: "canceled" });
+        await db.updateReservation(input.reservationId, { status: "cancelled" });
         return { success: true };
       }),
   }),
@@ -580,7 +577,7 @@ export const appRouter = router({
         await db.updateReview(reviewId, {
           ...updateData,
           respondedAt: new Date(),
-          respondedBy: ctx.user.id,
+          responseGeneratedBy: "manual",
         });
 
         // TODO: Post response to review platform
@@ -616,10 +613,10 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const campaignId = await db.createCampaign({
           restaurantId: ctx.tenant.restaurantId,
-          agentKey: "reengagement",
+
           ...input,
           status: "draft",
-          createdBy: ctx.user.id,
+          // createdBy: ctx.user.id,
         });
 
         return { campaignId, success: true };
@@ -637,7 +634,7 @@ export const appRouter = router({
         await db.createEvent({
           restaurantId: ctx.tenant.restaurantId,
           eventType: "campaign.launched",
-          agentKey: "reengagement",
+
           payload: { campaignId: input.campaignId },
           status: "pending",
         });
@@ -650,7 +647,7 @@ export const appRouter = router({
       .input(z.object({ campaignId: z.number() }))
       .mutation(async ({ ctx, input }) => {
         await db.updateCampaign(input.campaignId, {
-          status: "paused",
+          status: "cancelled",
         });
 
         return { success: true };

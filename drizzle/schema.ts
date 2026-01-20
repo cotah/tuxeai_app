@@ -1,450 +1,289 @@
-import { relations } from "drizzle-orm";
-import { decimal, int, json, mysqlEnum, mysqlTable, text, timestamp, unique, varchar } from "drizzle-orm/mysql-core";
+import {
+  pgTable,
+  serial,
+  varchar,
+  text,
+  timestamp,
+  integer,
+  boolean,
+  jsonb,
+  pgEnum,
+} from "drizzle-orm/pg-core";
 
 /**
- * Restaurant AI Workforce Platform - Database Schema
- * Multi-tenant SaaS architecture with strict tenant isolation
+ * PostgreSQL Schema for Restaurant AI Workforce Platform
+ * Multi-tenant SaaS with strict tenant isolation
  */
 
 // ============================================================================
-// CORE USER & AUTHENTICATION
+// ENUMS
 // ============================================================================
 
-export const users = mysqlTable("users", {
-  id: int("id").autoincrement().primaryKey(),
-  openId: varchar("openId", { length: 64 }).notNull().unique(),
+export const userRoleEnum = pgEnum("user_role", ["user", "admin"]);
+export const staffRoleEnum = pgEnum("staff_role", ["owner", "manager", "staff"]);
+export const agentCategoryEnum = pgEnum("agent_category", ["starter", "growth", "premium"]);
+export const reservationStatusEnum = pgEnum("reservation_status", [
+  "pending",
+  "confirmed",
+  "cancelled",
+  "completed",
+  "no_show",
+]);
+export const messageDirectionEnum = pgEnum("message_direction", ["inbound", "outbound"]);
+export const campaignStatusEnum = pgEnum("campaign_status", [
+  "draft",
+  "scheduled",
+  "running",
+  "completed",
+  "cancelled",
+]);
+export const eventStatusEnum = pgEnum("event_status", ["pending", "processing", "completed", "failed"]);
+export const reviewSentimentEnum = pgEnum("review_sentiment", ["positive", "neutral", "negative"]);
+
+// ============================================================================
+// CORE TABLES
+// ============================================================================
+
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
+  openId: varchar("open_id", { length: 64 }).notNull().unique(),
   name: text("name"),
   email: varchar("email", { length: 320 }),
-  loginMethod: varchar("loginMethod", { length: 64 }),
-  role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-  lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
+  loginMethod: varchar("login_method", { length: 64 }),
+  role: userRoleEnum("role").default("user").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  lastSignedIn: timestamp("last_signed_in").defaultNow().notNull(),
 });
 
-export type User = typeof users.$inferSelect;
-export type InsertUser = typeof users.$inferInsert;
-
-// ============================================================================
-// MULTI-TENANT: RESTAURANTS (TENANTS)
-// ============================================================================
-
-export const restaurants = mysqlTable("restaurants", {
-  id: int("id").autoincrement().primaryKey(),
+export const restaurants = pgTable("restaurants", {
+  id: serial("id").primaryKey(),
+  ownerId: integer("owner_id").notNull().references(() => users.id),
   name: varchar("name", { length: 255 }).notNull(),
-  email: varchar("email", { length: 320 }),
-  phone: varchar("phone", { length: 32 }),
+  slug: varchar("slug", { length: 255 }).unique(),
+  description: text("description"),
   address: text("address"),
-  timezone: varchar("timezone", { length: 64 }).default("UTC").notNull(),
-  
-  // WhatsApp Business Integration
-  whatsappNumber: varchar("whatsappNumber", { length: 32 }),
-  whatsappBusinessAccountId: varchar("whatsappBusinessAccountId", { length: 128 }),
-  whatsappAccessToken: text("whatsappAccessToken"), // Encrypted
-  
-  // Business Information
-  businessHours: json("businessHours").$type<Record<string, { open: string; close: string; closed?: boolean }>>(),
-  menuUrl: varchar("menuUrl", { length: 512 }),
-  websiteUrl: varchar("websiteUrl", { length: 512 }),
-  description: text("description"),
-  
-  // Settings
-  settings: json("settings").$type<{
-    defaultLanguage?: string;
-    currency?: string;
-    notificationEmail?: string;
-  }>(),
-  
-  // Stripe Integration
-  stripeCustomerId: varchar("stripeCustomerId", { length: 128 }),
-  
-  // Status
-  status: mysqlEnum("status", ["active", "suspended", "trial"]).default("trial").notNull(),
-  trialEndsAt: timestamp("trialEndsAt"),
-  
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
-
-export type Restaurant = typeof restaurants.$inferSelect;
-export type InsertRestaurant = typeof restaurants.$inferInsert;
-
-// ============================================================================
-// STAFF & RBAC
-// ============================================================================
-
-export const restaurantStaff = mysqlTable("restaurant_staff", {
-  id: int("id").autoincrement().primaryKey(),
-  restaurantId: int("restaurantId").notNull().references(() => restaurants.id, { onDelete: "cascade" }),
-  userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
-  role: mysqlEnum("role", ["owner", "manager", "staff"]).default("staff").notNull(),
-  permissions: json("permissions").$type<{
-    agents?: string[]; // Which agents they can access
-    canManageBilling?: boolean;
-    canManageStaff?: boolean;
-    canViewAnalytics?: boolean;
-  }>(),
-  invitedBy: int("invitedBy").references(() => users.id),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-}, (table) => ({
-  uniqueUserRestaurant: unique().on(table.restaurantId, table.userId),
-}));
-
-export type RestaurantStaff = typeof restaurantStaff.$inferSelect;
-export type InsertRestaurantStaff = typeof restaurantStaff.$inferInsert;
-
-// ============================================================================
-// AI AGENTS CATALOG & SUBSCRIPTIONS
-// ============================================================================
-
-export const agentCatalog = mysqlTable("agent_catalog", {
-  id: int("id").autoincrement().primaryKey(),
-  agentKey: varchar("agentKey", { length: 64 }).notNull().unique(),
-  name: varchar("name", { length: 128 }).notNull(),
-  description: text("description"),
-  category: mysqlEnum("category", ["starter", "growth", "premium"]).default("starter").notNull(),
-  basePriceMonthly: decimal("basePriceMonthly", { precision: 10, scale: 2 }).notNull(),
-  features: json("features").$type<string[]>(),
-  icon: varchar("icon", { length: 64 }), // Lucide icon name
-  isActive: int("isActive").default(1).notNull(), // 1 = active, 0 = inactive
-  sortOrder: int("sortOrder").default(0).notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
-
-export type AgentCatalog = typeof agentCatalog.$inferSelect;
-export type InsertAgentCatalog = typeof agentCatalog.$inferInsert;
-
-export const restaurantAgents = mysqlTable("restaurant_agents", {
-  id: int("id").autoincrement().primaryKey(),
-  restaurantId: int("restaurantId").notNull().references(() => restaurants.id, { onDelete: "cascade" }),
-  agentKey: varchar("agentKey", { length: 64 }).notNull(),
-  
-  // Subscription Status
-  isEnabled: int("isEnabled").default(1).notNull(),
-  configuration: json("configuration").$type<Record<string, any>>(),
-  
-  // Stripe Subscription
-  stripeSubscriptionId: varchar("stripeSubscriptionId", { length: 128 }),
-  stripeSubscriptionStatus: mysqlEnum("stripeSubscriptionStatus", [
-    "active", "past_due", "canceled", "unpaid", "trialing", "incomplete"
-  ]),
-  currentPeriodEnd: timestamp("currentPeriodEnd"),
-  
-  subscribedAt: timestamp("subscribedAt").defaultNow().notNull(),
-  canceledAt: timestamp("canceledAt"),
-  
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-}, (table) => ({
-  uniqueRestaurantAgent: unique().on(table.restaurantId, table.agentKey),
-}));
-
-export type RestaurantAgent = typeof restaurantAgents.$inferSelect;
-export type InsertRestaurantAgent = typeof restaurantAgents.$inferInsert;
-
-// ============================================================================
-// CUSTOMERS
-// ============================================================================
-
-export const customers = mysqlTable("customers", {
-  id: int("id").autoincrement().primaryKey(),
-  restaurantId: int("restaurantId").notNull().references(() => restaurants.id, { onDelete: "cascade" }),
-  
-  name: varchar("name", { length: 255 }),
-  phone: varchar("phone", { length: 32 }),
+  phone: varchar("phone", { length: 50 }),
   email: varchar("email", { length: 320 }),
-  whatsappId: varchar("whatsappId", { length: 128 }), // WhatsApp user ID
-  
-  tags: json("tags").$type<string[]>(), // ['vip', 'regular', 'inactive']
-  metadata: json("metadata").$type<Record<string, any>>(),
-  
-  totalReservations: int("totalReservations").default(0).notNull(),
-  totalNoShows: int("totalNoShows").default(0).notNull(),
-  lastInteractionAt: timestamp("lastInteractionAt"),
-  
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-}, (table) => ({
-  uniqueRestaurantPhone: unique().on(table.restaurantId, table.phone),
-}));
+  websiteUrl: varchar("website_url", { length: 500 }),
+  menuUrl: varchar("menu_url", { length: 500 }),
+  timezone: varchar("timezone", { length: 50 }).default("UTC").notNull(),
+  businessHours: jsonb("business_hours"),
+  settings: jsonb("settings"),
+  stripeCustomerId: varchar("stripe_customer_id", { length: 255 }),
+  subscriptionStatus: varchar("subscription_status", { length: 50 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
 
-export type Customer = typeof customers.$inferSelect;
-export type InsertCustomer = typeof customers.$inferInsert;
+export const restaurantStaff = pgTable("restaurant_staff", {
+  id: serial("id").primaryKey(),
+  restaurantId: integer("restaurant_id").notNull().references(() => restaurants.id),
+  userId: integer("user_id").notNull().references(() => users.id),
+  role: staffRoleEnum("role").notNull(),
+  permissions: jsonb("permissions"),
+  invitedAt: timestamp("invited_at").defaultNow().notNull(),
+  joinedAt: timestamp("joined_at"),
+  isActive: boolean("is_active").default(true).notNull(),
+});
+
+// ============================================================================
+// AGENT CATALOG & SUBSCRIPTIONS
+// ============================================================================
+
+export const agentCatalog = pgTable("agent_catalog", {
+  id: serial("id").primaryKey(),
+  agentKey: varchar("agent_key", { length: 100 }).notNull().unique(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  category: agentCategoryEnum("category").notNull(),
+  icon: varchar("icon", { length: 100 }),
+  features: jsonb("features"),
+  basePriceMonthly: varchar("base_price_monthly", { length: 20 }).notNull(),
+  stripePriceId: varchar("stripe_price_id", { length: 255 }),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const restaurantAgents = pgTable("restaurant_agents", {
+  id: serial("id").primaryKey(),
+  restaurantId: integer("restaurant_id").notNull().references(() => restaurants.id),
+  agentKey: varchar("agent_key", { length: 100 }).notNull(),
+  isEnabled: boolean("is_enabled").default(true).notNull(),
+  configuration: jsonb("configuration"),
+  subscribedAt: timestamp("subscribed_at").defaultNow().notNull(),
+  lastActiveAt: timestamp("last_active_at"),
+  stripeSubscriptionId: varchar("stripe_subscription_id", { length: 255 }),
+});
+
+// ============================================================================
+// CUSTOMERS & CONVERSATIONS
+// ============================================================================
+
+export const customers = pgTable("customers", {
+  id: serial("id").primaryKey(),
+  restaurantId: integer("restaurant_id").notNull().references(() => restaurants.id),
+  name: varchar("name", { length: 255 }),
+  phone: varchar("phone", { length: 50 }),
+  email: varchar("email", { length: 320 }),
+  tags: jsonb("tags"),
+  metadata: jsonb("metadata"),
+  totalReservations: integer("total_reservations").default(0).notNull(),
+  lastInteractionAt: timestamp("last_interaction_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const conversations = pgTable("conversations", {
+  id: serial("id").primaryKey(),
+  restaurantId: integer("restaurant_id").notNull().references(() => restaurants.id),
+  customerId: integer("customer_id").notNull().references(() => customers.id),
+  channel: varchar("channel", { length: 50 }).notNull(),
+  externalId: varchar("external_id", { length: 255 }),
+  status: varchar("status", { length: 50 }).default("active").notNull(),
+  lastMessageAt: timestamp("last_message_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const messages = pgTable("messages", {
+  id: serial("id").primaryKey(),
+  conversationId: integer("conversation_id").notNull().references(() => conversations.id),
+  direction: messageDirectionEnum("direction").notNull(),
+  content: text("content").notNull(),
+  messageType: varchar("message_type", { length: 50 }).default("text").notNull(),
+  metadata: jsonb("metadata"),
+  agentKey: varchar("agent_key", { length: 100 }),
+  externalId: varchar("external_id", { length: 255 }),
+  status: varchar("status", { length: 50 }).default("sent"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
 
 // ============================================================================
 // RESERVATIONS
 // ============================================================================
 
-export const reservations = mysqlTable("reservations", {
-  id: int("id").autoincrement().primaryKey(),
-  restaurantId: int("restaurantId").notNull().references(() => restaurants.id, { onDelete: "cascade" }),
-  customerId: int("customerId").notNull().references(() => customers.id, { onDelete: "cascade" }),
-  
-  reservationDate: timestamp("reservationDate").notNull(),
-  partySize: int("partySize").notNull(),
-  status: mysqlEnum("status", ["pending", "confirmed", "canceled", "completed", "no_show"]).default("pending").notNull(),
-  
-  specialRequests: text("specialRequests"),
-  source: mysqlEnum("source", ["whatsapp", "web", "phone", "manual"]).default("manual").notNull(),
-  
-  confirmationSentAt: timestamp("confirmationSentAt"),
-  reminderSentAt: timestamp("reminderSentAt"),
-  
-  notes: text("notes"), // Staff notes
-  
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+export const reservations = pgTable("reservations", {
+  id: serial("id").primaryKey(),
+  restaurantId: integer("restaurant_id").notNull().references(() => restaurants.id),
+  customerId: integer("customer_id").notNull().references(() => customers.id),
+  reservationDate: timestamp("reservation_date").notNull(),
+  partySize: integer("party_size").notNull(),
+  specialRequests: text("special_requests"),
+  status: reservationStatusEnum("status").default("pending").notNull(),
+  source: varchar("source", { length: 50 }),
+  confirmationSentAt: timestamp("confirmation_sent_at"),
+  reminderSentAt: timestamp("reminder_sent_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
-
-export type Reservation = typeof reservations.$inferSelect;
-export type InsertReservation = typeof reservations.$inferInsert;
-
-// ============================================================================
-// CONVERSATIONS & MESSAGES
-// ============================================================================
-
-export const conversations = mysqlTable("conversations", {
-  id: int("id").autoincrement().primaryKey(),
-  restaurantId: int("restaurantId").notNull().references(() => restaurants.id, { onDelete: "cascade" }),
-  customerId: int("customerId").notNull().references(() => customers.id, { onDelete: "cascade" }),
-  
-  channel: mysqlEnum("channel", ["whatsapp", "web"]).default("whatsapp").notNull(),
-  status: mysqlEnum("status", ["open", "closed"]).default("open").notNull(),
-  
-  assignedAgentKey: varchar("assignedAgentKey", { length: 64 }), // Which agent is handling
-  metadata: json("metadata").$type<Record<string, any>>(),
-  
-  lastMessageAt: timestamp("lastMessageAt"),
-  
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
-
-export type Conversation = typeof conversations.$inferSelect;
-export type InsertConversation = typeof conversations.$inferInsert;
-
-export const messages = mysqlTable("messages", {
-  id: int("id").autoincrement().primaryKey(),
-  conversationId: int("conversationId").notNull().references(() => conversations.id, { onDelete: "cascade" }),
-  
-  direction: mysqlEnum("direction", ["inbound", "outbound"]).notNull(),
-  content: text("content").notNull(),
-  messageType: mysqlEnum("messageType", ["text", "image", "template", "interactive"]).default("text").notNull(),
-  
-  whatsappMessageId: varchar("whatsappMessageId", { length: 128 }),
-  agentKey: varchar("agentKey", { length: 64 }), // Which agent sent this (if outbound)
-  
-  metadata: json("metadata").$type<Record<string, any>>(),
-  
-  sentAt: timestamp("sentAt").defaultNow().notNull(),
-  deliveredAt: timestamp("deliveredAt"),
-  readAt: timestamp("readAt"),
-});
-
-export type Message = typeof messages.$inferSelect;
-export type InsertMessage = typeof messages.$inferInsert;
 
 // ============================================================================
 // REVIEWS & REPUTATION
 // ============================================================================
 
-export const reviews = mysqlTable("reviews", {
-  id: int("id").autoincrement().primaryKey(),
-  restaurantId: int("restaurantId").notNull().references(() => restaurants.id, { onDelete: "cascade" }),
-  
-  platform: mysqlEnum("platform", ["google", "tripadvisor", "facebook", "yelp"]).notNull(),
-  externalId: varchar("externalId", { length: 255 }).notNull(),
-  
-  authorName: varchar("authorName", { length: 255 }),
-  authorAvatar: varchar("authorAvatar", { length: 512 }),
-  rating: int("rating").notNull(), // 1-5
-  reviewText: text("reviewText"),
-  reviewDate: timestamp("reviewDate").notNull(),
-  
-  responseText: text("responseText"),
-  responseGeneratedBy: mysqlEnum("responseGeneratedBy", ["ai", "manual"]),
-  respondedAt: timestamp("respondedAt"),
-  respondedBy: int("respondedBy").references(() => users.id),
-  
-  sentiment: mysqlEnum("sentiment", ["positive", "neutral", "negative"]),
-  
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-}, (table) => ({
-  uniquePlatformExternal: unique().on(table.restaurantId, table.platform, table.externalId),
-}));
-
-export type Review = typeof reviews.$inferSelect;
-export type InsertReview = typeof reviews.$inferInsert;
+export const reviews = pgTable("reviews", {
+  id: serial("id").primaryKey(),
+  restaurantId: integer("restaurant_id").notNull().references(() => restaurants.id),
+  platform: varchar("platform", { length: 50 }).notNull(),
+  externalId: varchar("external_id", { length: 255 }),
+  authorName: varchar("author_name", { length: 255 }),
+  rating: integer("rating").notNull(),
+  reviewText: text("review_text"),
+  reviewDate: timestamp("review_date").notNull(),
+  responseText: text("response_text"),
+  responseGeneratedBy: varchar("response_generated_by", { length: 50 }),
+  respondedAt: timestamp("responded_at"),
+  sentiment: reviewSentimentEnum("sentiment"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
 
 // ============================================================================
-// CAMPAIGNS (RE-ENGAGEMENT)
+// CAMPAIGNS & RE-ENGAGEMENT
 // ============================================================================
 
-export const campaigns = mysqlTable("campaigns", {
-  id: int("id").autoincrement().primaryKey(),
-  restaurantId: int("restaurantId").notNull().references(() => restaurants.id, { onDelete: "cascade" }),
-  agentKey: varchar("agentKey", { length: 64 }).default("reengagement").notNull(),
-  
+export const campaigns = pgTable("campaigns", {
+  id: serial("id").primaryKey(),
+  restaurantId: integer("restaurant_id").notNull().references(() => restaurants.id),
   name: varchar("name", { length: 255 }).notNull(),
-  targetAudience: json("targetAudience").$type<{
-    inactiveDays?: number;
-    tags?: string[];
-    minReservations?: number;
-  }>(),
-  
-  messageTemplate: text("messageTemplate").notNull(),
-  
-  status: mysqlEnum("status", ["draft", "scheduled", "running", "completed", "paused"]).default("draft").notNull(),
-  
-  scheduledAt: timestamp("scheduledAt"),
-  completedAt: timestamp("completedAt"),
-  
-  stats: json("stats").$type<{
-    targeted?: number;
-    sent?: number;
-    delivered?: number;
-    read?: number;
-    replied?: number;
-  }>(),
-  
-  createdBy: int("createdBy").notNull().references(() => users.id),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  messageTemplate: text("message_template").notNull(),
+  targetAudience: jsonb("target_audience"),
+  status: campaignStatusEnum("status").default("draft").notNull(),
+  scheduledAt: timestamp("scheduled_at"),
+  completedAt: timestamp("completed_at"),
+  stats: jsonb("stats"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-export type Campaign = typeof campaigns.$inferSelect;
-export type InsertCampaign = typeof campaigns.$inferInsert;
-
 // ============================================================================
-// EVENT-DRIVEN ARCHITECTURE
+// EVENTS & WORKFLOW
 // ============================================================================
 
-export const events = mysqlTable("events", {
-  id: int("id").autoincrement().primaryKey(),
-  restaurantId: int("restaurantId").notNull().references(() => restaurants.id, { onDelete: "cascade" }),
-  
-  eventType: varchar("eventType", { length: 128 }).notNull(), // 'message.received', 'reservation.created'
-  agentKey: varchar("agentKey", { length: 64 }),
-  
-  payload: json("payload").$type<Record<string, any>>().notNull(),
-  
-  status: mysqlEnum("status", ["pending", "processing", "completed", "failed"]).default("pending").notNull(),
+export const events = pgTable("events", {
+  id: serial("id").primaryKey(),
+  restaurantId: integer("restaurant_id").notNull().references(() => restaurants.id),
+  eventType: varchar("event_type", { length: 100 }).notNull(),
+  agentKey: varchar("agent_key", { length: 100 }),
+  payload: jsonb("payload"),
+  status: eventStatusEnum("status").default("pending").notNull(),
   error: text("error"),
-  
-  processedAt: timestamp("processedAt"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  processedAt: timestamp("processed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
-
-export type Event = typeof events.$inferSelect;
-export type InsertEvent = typeof events.$inferInsert;
 
 // ============================================================================
 // ANALYTICS & METRICS
 // ============================================================================
 
-export const analyticsMetrics = mysqlTable("analytics_metrics", {
-  id: int("id").autoincrement().primaryKey(),
-  restaurantId: int("restaurantId").notNull().references(() => restaurants.id, { onDelete: "cascade" }),
-  agentKey: varchar("agentKey", { length: 64 }),
-  
-  metricType: varchar("metricType", { length: 128 }).notNull(), // 'reservations_count', 'messages_sent'
-  metricValue: decimal("metricValue", { precision: 15, scale: 2 }).notNull(),
-  
-  dimensions: json("dimensions").$type<{
-    date?: string;
-    hour?: number;
-    source?: string;
-    [key: string]: any;
-  }>(),
-  
-  recordedAt: timestamp("recordedAt").defaultNow().notNull(),
+export const analyticsMetrics = pgTable("analytics_metrics", {
+  id: serial("id").primaryKey(),
+  restaurantId: integer("restaurant_id").notNull().references(() => restaurants.id),
+  agentKey: varchar("agent_key", { length: 100 }),
+  metricType: varchar("metric_type", { length: 100 }).notNull(),
+  metricValue: varchar("metric_value", { length: 255 }).notNull(),
+  dimensions: jsonb("dimensions"),
+  recordedAt: timestamp("recorded_at").defaultNow().notNull(),
 });
+
+// ============================================================================
+// TYPE EXPORTS
+// ============================================================================
+
+export type User = typeof users.$inferSelect;
+export type InsertUser = typeof users.$inferInsert;
+
+export type Restaurant = typeof restaurants.$inferSelect;
+export type InsertRestaurant = typeof restaurants.$inferInsert;
+
+export type RestaurantStaff = typeof restaurantStaff.$inferSelect;
+export type InsertRestaurantStaff = typeof restaurantStaff.$inferInsert;
+
+export type AgentCatalog = typeof agentCatalog.$inferSelect;
+export type InsertAgentCatalog = typeof agentCatalog.$inferInsert;
+
+export type RestaurantAgent = typeof restaurantAgents.$inferSelect;
+export type InsertRestaurantAgent = typeof restaurantAgents.$inferInsert;
+
+export type Customer = typeof customers.$inferSelect;
+export type InsertCustomer = typeof customers.$inferInsert;
+
+export type Conversation = typeof conversations.$inferSelect;
+export type InsertConversation = typeof conversations.$inferInsert;
+
+export type Message = typeof messages.$inferSelect;
+export type InsertMessage = typeof messages.$inferInsert;
+
+export type Reservation = typeof reservations.$inferSelect;
+export type InsertReservation = typeof reservations.$inferInsert;
+
+export type Review = typeof reviews.$inferSelect;
+export type InsertReview = typeof reviews.$inferInsert;
+
+export type Campaign = typeof campaigns.$inferSelect;
+export type InsertCampaign = typeof campaigns.$inferInsert;
+
+export type Event = typeof events.$inferSelect;
+export type InsertEvent = typeof events.$inferInsert;
 
 export type AnalyticsMetric = typeof analyticsMetrics.$inferSelect;
 export type InsertAnalyticsMetric = typeof analyticsMetrics.$inferInsert;
-
-// ============================================================================
-// RELATIONS
-// ============================================================================
-
-export const restaurantsRelations = relations(restaurants, ({ many }) => ({
-  staff: many(restaurantStaff),
-  agents: many(restaurantAgents),
-  customers: many(customers),
-  reservations: many(reservations),
-  conversations: many(conversations),
-  reviews: many(reviews),
-  campaigns: many(campaigns),
-  events: many(events),
-  metrics: many(analyticsMetrics),
-}));
-
-export const restaurantStaffRelations = relations(restaurantStaff, ({ one }) => ({
-  restaurant: one(restaurants, {
-    fields: [restaurantStaff.restaurantId],
-    references: [restaurants.id],
-  }),
-  user: one(users, {
-    fields: [restaurantStaff.userId],
-    references: [users.id],
-  }),
-}));
-
-export const customersRelations = relations(customers, ({ one, many }) => ({
-  restaurant: one(restaurants, {
-    fields: [customers.restaurantId],
-    references: [restaurants.id],
-  }),
-  reservations: many(reservations),
-  conversations: many(conversations),
-}));
-
-export const reservationsRelations = relations(reservations, ({ one }) => ({
-  restaurant: one(restaurants, {
-    fields: [reservations.restaurantId],
-    references: [restaurants.id],
-  }),
-  customer: one(customers, {
-    fields: [reservations.customerId],
-    references: [customers.id],
-  }),
-}));
-
-export const conversationsRelations = relations(conversations, ({ one, many }) => ({
-  restaurant: one(restaurants, {
-    fields: [conversations.restaurantId],
-    references: [restaurants.id],
-  }),
-  customer: one(customers, {
-    fields: [conversations.customerId],
-    references: [customers.id],
-  }),
-  messages: many(messages),
-}));
-
-export const messagesRelations = relations(messages, ({ one }) => ({
-  conversation: one(conversations, {
-    fields: [messages.conversationId],
-    references: [conversations.id],
-  }),
-}));
-
-export const reviewsRelations = relations(reviews, ({ one }) => ({
-  restaurant: one(restaurants, {
-    fields: [reviews.restaurantId],
-    references: [restaurants.id],
-  }),
-}));
-
-export const campaignsRelations = relations(campaigns, ({ one }) => ({
-  restaurant: one(restaurants, {
-    fields: [campaigns.restaurantId],
-    references: [restaurants.id],
-  }),
-  creator: one(users, {
-    fields: [campaigns.createdBy],
-    references: [users.id],
-  }),
-}));

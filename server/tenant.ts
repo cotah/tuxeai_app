@@ -75,7 +75,7 @@ export async function verifyOwnerAccess(userId: number, restaurantId: number): P
  */
 export async function verifyBillingAccess(userId: number, restaurantId: number): Promise<boolean> {
   const staff = await getStaffMember(restaurantId, userId);
-  return staff?.role === "owner" || staff?.permissions?.canManageBilling === true;
+  return staff?.role === "owner" || (staff?.permissions as any)?.canManageBilling === true;
 }
 
 /**
@@ -96,5 +96,6 @@ export async function verifyAgentAccess(
   }
   
   // Staff members need explicit permission
-  return staff.permissions?.agents?.includes(agentKey) === true;
+  const permissions = staff.permissions as any;
+  return permissions?.agents?.includes(agentKey) === true;
 }

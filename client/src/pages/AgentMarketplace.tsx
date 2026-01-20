@@ -112,7 +112,7 @@ export default function AgentMarketplace() {
 
                 {/* Features */}
                 <div className="space-y-2 mb-6">
-                  {agent.features?.slice(0, 4).map((feature, idx) => (
+                  {(agent.features as any[])?.slice(0, 4).map((feature: any, idx: number) => (
                     <div key={idx} className="flex items-start gap-2 text-sm">
                       <Check className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
                       <span className="text-slate-700">{feature}</span>

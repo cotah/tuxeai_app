@@ -107,3 +107,31 @@
 - [ ] Set up monitoring and logging
 - [ ] Create backup strategy
 - [ ] Document deployment process
+
+## Dashboard & UI
+- [ ] Create restaurant onboarding flow
+- [ ] Build main dashboard layout with navigation
+- [ ] Create agent management page
+- [ ] Build reservations management page
+- [ ] Create customers list and detail pages
+- [ ] Build conversations/messages interface
+- [ ] Create reviews management page
+- [ ] Build campaigns management page
+- [ ] Create analytics dashboard with charts
+
+## AI Agents Implementation
+- [x] Implement Reservation Agent logic
+- [x] Implement Support Agent with LLM
+- [x] Implement Reviews Agent
+- [x] Implement Re-engagement Agent
+- [x] Create event processor for agent workflows
+- [x] Add natural language processing for reservations
+- [x] Create agent response templates
+
+## Integrations
+- [ ] Complete Stripe integration setup
+- [ ] Add subscription webhook handlers
+- [ ] Create WhatsApp message sending function
+- [ ] Add WhatsApp webhook receiver
+- [ ] Implement Google Reviews API integration
+- [ ] Add TripAdvisor API integration

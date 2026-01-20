@@ -1,5 +1,6 @@
 import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/mysql2";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
 import {
   agentCatalog,
   analyticsMetrics,
@@ -30,11 +31,14 @@ import {
 import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
+let _client: ReturnType<typeof postgres> | null = null;
 
+// Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      _client = postgres(process.env.DATABASE_URL, { max: 10 });
+      _db = drizzle(_client);
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
@@ -98,7 +102,8 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     await db
       .insert(users)
       .values(values)
-      .onDuplicateKeyUpdate({
+      .onConflictDoUpdate({
+        target: users.openId,
         set: updateSet,
       });
   } catch (error) {
@@ -135,8 +140,8 @@ export async function createRestaurant(data: InsertRestaurant) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const result = await db.insert(restaurants).values(data);
-  return result[0].insertId;
+  const result = await db.insert(restaurants).values(data).returning({ id: restaurants.id });
+  return result[0].id;
 }
 
 export async function getRestaurantById(id: number) {
@@ -178,8 +183,8 @@ export async function addStaffMember(data: InsertRestaurantStaff) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const result = await db.insert(restaurantStaff).values(data);
-  return result[0].insertId;
+  const result = await db.insert(restaurantStaff).values(data).returning({ id: restaurantStaff.id });
+  return result[0].id;
 }
 
 export async function getRestaurantStaff(restaurantId: number) {
@@ -233,7 +238,7 @@ export async function getAgentCatalog() {
   const db = await getDb();
   if (!db) return [];
 
-  const result = await db.select().from(agentCatalog).where(eq(agentCatalog.isActive, 1)).orderBy(agentCatalog.sortOrder);
+  const result = await db.select().from(agentCatalog).where(eq(agentCatalog.isActive, true)).orderBy(agentCatalog.id);
 
   return result;
 }
@@ -264,8 +269,8 @@ export async function subscribeToAgent(data: InsertRestaurantAgent) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const result = await db.insert(restaurantAgents).values(data);
-  return result[0].insertId;
+  const result = await db.insert(restaurantAgents).values(data).returning({ id: restaurantAgents.id });
+  return result[0].id;
 }
 
 export async function updateRestaurantAgent(id: number, data: Partial<InsertRestaurantAgent>) {
@@ -290,8 +295,8 @@ export async function createCustomer(data: InsertCustomer) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const result = await db.insert(customers).values(data);
-  return result[0].insertId;
+  const result = await db.insert(customers).values(data).returning({ id: customers.id });
+  return result[0].id;
 }
 
 export async function getCustomerByPhone(restaurantId: number, phone: string) {
@@ -365,8 +370,8 @@ export async function createReservation(data: InsertReservation) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const result = await db.insert(reservations).values(data);
-  return result[0].insertId;
+  const result = await db.insert(reservations).values(data).returning({ id: reservations.id });
+  return result[0].id;
 }
 
 export async function getReservationById(id: number) {
@@ -423,8 +428,8 @@ export async function createConversation(data: InsertConversation) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const result = await db.insert(conversations).values(data);
-  return result[0].insertId;
+  const result = await db.insert(conversations).values(data).returning({ id: conversations.id });
+  return result[0].id;
 }
 
 export async function getConversationById(id: number) {
@@ -473,7 +478,7 @@ export async function createMessage(data: InsertMessage) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const result = await db.insert(messages).values(data);
+  const result = await db.insert(messages).values(data).returning({ id: messages.id });
   
   // Update conversation lastMessageAt
   await db
@@ -481,7 +486,7 @@ export async function createMessage(data: InsertMessage) {
     .set({ lastMessageAt: new Date() })
     .where(eq(conversations.id, data.conversationId));
 
-  return result[0].insertId;
+  return result[0].id;
 }
 
 export async function getConversationMessages(conversationId: number, limit = 50) {
@@ -492,7 +497,7 @@ export async function getConversationMessages(conversationId: number, limit = 50
     .select()
     .from(messages)
     .where(eq(messages.conversationId, conversationId))
-    .orderBy(desc(messages.sentAt))
+    .orderBy(desc(messages.createdAt))
     .limit(limit);
 
   return result.reverse(); // Return in chronological order
@@ -524,8 +529,8 @@ export async function createReview(data: InsertReview) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const result = await db.insert(reviews).values(data);
-  return result[0].insertId;
+  const result = await db.insert(reviews).values(data).returning({ id: reviews.id });
+  return result[0].id;
 }
 
 export async function getRestaurantReviews(restaurantId: number, limit = 100) {
@@ -540,6 +545,14 @@ export async function getRestaurantReviews(restaurantId: number, limit = 100) {
     .limit(limit);
 
   return result;
+}
+
+export async function getReviewById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  const result = await db.select().from(reviews).where(eq(reviews.id, id)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
 }
 
 export async function updateReview(id: number, data: Partial<InsertReview>) {
@@ -557,8 +570,8 @@ export async function createCampaign(data: InsertCampaign) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const result = await db.insert(campaigns).values(data);
-  return result[0].insertId;
+  const result = await db.insert(campaigns).values(data).returning({ id: campaigns.id });
+  return result[0].id;
 }
 
 export async function getRestaurantCampaigns(restaurantId: number) {
@@ -588,9 +601,8 @@ export async function updateCampaign(id: number, data: Partial<InsertCampaign>) 
 export async function createEvent(data: InsertEvent) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-
-  const result = await db.insert(events).values(data);
-  return result[0].insertId;
+  const result = await db.insert(events).values(data).returning({ id: events.id });
+  return result[0].id;
 }
 
 export async function getPendingEvents(limit = 100) {
@@ -622,8 +634,8 @@ export async function recordMetric(data: InsertAnalyticsMetric) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const result = await db.insert(analyticsMetrics).values(data);
-  return result[0].insertId;
+  const result = await db.insert(analyticsMetrics).values(data).returning({ id: analyticsMetrics.id });
+  return result[0].id;
 }
 
 export async function getMetrics(
