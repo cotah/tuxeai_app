@@ -668,6 +668,29 @@ export const appRouter = router({
   }),
 
   // ============================================================================
+  // MESSAGES
+  // ============================================================================
+  messages: router({
+    // Send message
+    send: tenantProcedure
+      .input(
+        z.object({
+          conversationId: z.number(),
+          content: z.string(),
+          direction: z.enum(["inbound", "outbound"]),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const message = await db.createMessage({
+          conversationId: input.conversationId,
+          content: input.content,
+          direction: input.direction,
+        });
+        return message;
+      }),
+  }),
+
+  // ============================================================================
   // ANALYTICS
   // ============================================================================
   
