@@ -135,3 +135,12 @@
 - [ ] Add WhatsApp webhook receiver
 - [ ] Implement Google Reviews API integration
 - [ ] Add TripAdvisor API integration
+
+## Dashboard Management Pages (Current Focus)
+- [x] Create Reservations page with calendar view
+- [x] Create Reservations list with filters
+- [x] Create Customers page (CRM)
+- [x] Create Customer detail view
+- [x] Create Conversations page (WhatsApp inbox)
+- [ ] Create Agent Configuration pages
+- [x] Add navigation between pages

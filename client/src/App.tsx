@@ -8,6 +8,9 @@ import Home from "./pages/Home";
 import AgentMarketplace from "./pages/AgentMarketplace";
 import Dashboard from "./pages/Dashboard";
 import Onboarding from "./pages/Onboarding";
+import Reservations from "./pages/Reservations";
+import Customers from "./pages/Customers";
+import Conversations from "./pages/Conversations";
 
 function Router() {
   return (
@@ -17,6 +20,9 @@ function Router() {
       <Route path={"/dashboard"} component={Dashboard} />
       <Route path={"/agents"} component={AgentMarketplace} />
       <Route path={"/marketplace"} component={AgentMarketplace} />
+      <Route path={"/reservations"} component={Reservations} />
+      <Route path={"/customers"} component={Customers} />
+      <Route path={"/conversations"} component={Conversations} />
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
     </Switch>
