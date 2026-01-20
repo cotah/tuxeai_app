@@ -655,10 +655,44 @@ export const appRouter = router({
   }),
 
   // ============================================================================
+  // RESTAURANT AGENTS (SUBSCRIPTIONS)
+  // ============================================================================
+  
+  restaurantAgents: router({
+    // List my restaurant's agents
+    listMy: protectedProcedure.query(async ({ ctx }) => {
+      const restaurant = await db.getRestaurantByOwnerId(ctx.user.id);
+      if (!restaurant) return [];
+      return db.getRestaurantAgents(restaurant.id);
+    }),
+  }),
+
+  // ============================================================================
   // ANALYTICS
   // ============================================================================
   
   analytics: router({
+    // Get overview stats
+    getOverview: protectedProcedure.query(async ({ ctx }) => {
+      const restaurant = await db.getRestaurantByOwnerId(ctx.user.id);
+      if (!restaurant) {
+        return {
+          totalReservations: 0,
+          totalMessages: 0,
+          totalCustomers: 0,
+          averageRating: 0,
+        };
+      }
+      
+      // TODO: Implement real analytics queries
+      return {
+        totalReservations: 0,
+        totalMessages: 0,
+        totalCustomers: 0,
+        averageRating: 0,
+      };
+    }),
+    
     // Get metrics summary
     summary: tenantProcedure
       .input(

@@ -187,6 +187,19 @@ export async function addStaffMember(data: InsertRestaurantStaff) {
   return result[0].id;
 }
 
+export async function getRestaurantByOwnerId(ownerId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  const results = await db
+    .select()
+    .from(restaurants)
+    .where(eq(restaurants.ownerId, ownerId))
+    .limit(1);
+
+  return results[0];
+}
+
 export async function getRestaurantStaff(restaurantId: number) {
   const db = await getDb();
   if (!db) return [];
