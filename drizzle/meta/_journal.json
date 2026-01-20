@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1768893804806,
+      "tag": "0000_cold_silver_surfer",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1768894002081,
+      "tag": "0001_equal_rhino",
+      "breakpoints": true
+    }
+  ]
+}
